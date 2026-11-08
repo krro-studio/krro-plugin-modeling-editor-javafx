@@ -1,22 +1,28 @@
 (ns top.kzre.krro.plugin.modeling.editor.javafx.canvas.core
   (:require
    [top.kzre.krro.core.util.promise :as promise]
+   [top.kzre.krro.plugin.modeling.core.object.subs :as object.subs]
    [top.kzre.krro.plugin.modeling.core.project.accel :as accel]
    [top.kzre.krro.plugin.modeling.core.project.asset :as asset]
    [top.kzre.krro.plugin.modeling.core.project.core :as project]
+   [top.kzre.krro.plugin.modeling.core.schedule.gl.studio-renderer :as studio-renderer]
    [top.kzre.krro.plugin.modeling.editor.javafx.canvas.gl :as gl]
    [top.kzre.krro.plugin.modeling.editor.javafx.canvas.gl-canvas-kernel :as gl-kernal]
    [top.kzre.krro.plugin.modeling.editor.javafx.canvas.modeling-canvas :as modeling-canvas])
   (:import
-    (top.kzre.krro.d3.core.scene AssetMeshRef)
-    (top.kzre.krro.plugin.modeling.core.project DefaultK3DRuntime K3DRuntime ProjectScene)
-    (top.kzre.krro.plugin.modeling.core.schedule.gl GLSceneSchedulerHolderFactory)
-    (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime)
-    (top.kzre.krro.util.arena Arenas AutoGrowFloatArrayArenaTemplate)))
+   (top.kzre.krro.d3.core.scene AssetMeshRef)
+   (top.kzre.krro.plugin.modeling.core.project DefaultK3DRuntime K3DRuntime ProjectScene)
+   (top.kzre.krro.plugin.modeling.core.schedule.gl GLSceneSchedulerHolderFactory)
+   (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime)
+   (top.kzre.krro.util.arena Arenas AutoGrowFloatArrayArenaTemplate)))
 
 ;; 初始化 运行时
 (let [flyweight (promise/await (gl/render-flyweight-promise (GLRuntime/offscreen)))
-      scheduler-holder-factory (GLSceneSchedulerHolderFactory. flyweight)
+      scheduler-holder-factory (-> (GLSceneSchedulerHolderFactory/builder)
+                                   (.flyweight flyweight)
+                                   (.makePipeline (studio-renderer/make-renderer-func))
+                                   (.activeObjectHolderFactory (object.subs/active-object-holder-factory))
+                                   (.build))
       farena (Arenas/newEmptyFloatArray)
       f-tpl (AutoGrowFloatArrayArenaTemplate/fixedSize farena (* 1024 1024))
       k3d-impl (-> (DefaultK3DRuntime/builder)

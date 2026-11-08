@@ -10,19 +10,20 @@
     [top.kzre.krro.plugin.painting.editor.javafx.input.pointer :as pointer]
     [top.kzre.krro.plugin.painting.editor.javafx.input.protocol :as input])
   (:import
-   (com.huskerdev.grapl.gl GLContext GLProfile)
-   (com.huskerdev.openglfx.canvas GLCanvas GLCanvas$Builder GLCanvas$Builder$ContextDescription$New)
-   (com.huskerdev.openglfx.canvas.events GLRenderEvent)
-   (com.huskerdev.openglfx.lwjgl LWJGLExecutor)
-   (java.util.function Consumer)
-   (javafx.application Platform)
-   (javafx.scene.canvas Canvas)
-   (javafx.scene.layout StackPane)
-   (top.kzre.krro.core.util SerialExecutor)
-   (top.kzre.krro.plugin.modeling.core.project K3DRuntime)
-   (top.kzre.krro.plugin.modeling.core.schedule Session)
-   (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime GLSyncTiledTextureBlitter)
-   (top.kzre.krro.util.math KMath)))
+    (com.huskerdev.grapl.gl GLContext GLProfile)
+    (com.huskerdev.openglfx.canvas GLCanvas GLCanvas$Builder GLCanvas$Builder$ContextDescription$New)
+    (com.huskerdev.openglfx.canvas.events GLRenderEvent)
+    (com.huskerdev.openglfx.lwjgl LWJGLExecutor)
+    (java.util.function Consumer)
+    (javafx.application Platform)
+    (javafx.scene.canvas Canvas)
+    (javafx.scene.layout StackPane)
+    (top.kzre.krro.canvas.gl.util ExecutorUtils)
+    (top.kzre.krro.core.util SerialExecutor)
+    (top.kzre.krro.plugin.modeling.core.project K3DRuntime)
+    (top.kzre.krro.plugin.modeling.core.schedule Session)
+    (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime GLSyncTiledTextureBlitter)
+    (top.kzre.krro.util.math KMath)))
 
 
 (defn- make-state []
@@ -67,12 +68,10 @@
         (plet>
           [_
            (promise/from-completable-future
-             (.submit
+             (ExecutorUtils/runOnThread
                gl-exec
-               ^Callable
-               (fn []
-                 ;; 帧提交 + fence 全部封装在 send 内部；canvas 为空或已关闭时跳过
-                 (when (and canvas (not (.isClosed canvas)))
+               (reify Runnable
+                 (run  [_]
                    (.send ^GLSyncTiledTextureBlitter sync-blitter
                           canvas w h)))))]
           (>| repaint-chan :dirty)

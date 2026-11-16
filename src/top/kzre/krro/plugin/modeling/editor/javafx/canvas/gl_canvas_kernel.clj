@@ -22,8 +22,7 @@
     (top.kzre.krro.core.util SerialExecutor)
     (top.kzre.krro.plugin.modeling.core.project K3DRuntime)
     (top.kzre.krro.plugin.modeling.core.schedule Session)
-    (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime GLSyncTiledTextureBlitter)
-    (top.kzre.krro.util.math KMath)))
+    (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime GLSyncTiledTextureBlitter)))
 
 
 (defn- make-state []
@@ -34,7 +33,7 @@
          :closed false}))
 
 (defn setup-viewport!
-  [{:keys [view-mat4 proj-mat4 view-proj-mat4
+  [{:keys [view-mat4 proj-mat4
            state-atom]
     :as kernel} viewport]
   (let [aspect (protocol/view-aspect kernel)]
@@ -44,8 +43,8 @@
                            (assoc :aspect aspect))
               view-mat4 (core.viewport/viewport->view-mat4 viewport view-mat4)
               proj-mat4 (core.viewport/viewport->proj-mat4 viewport proj-mat4)
-              view-proj-mat4 (KMath/mat4Mul proj-mat4 view-mat4 view-proj-mat4)]
-          (.setViewProjection session view-proj-mat4))))))
+              ]
+          (.setViewProjection session view-mat4 proj-mat4))))))
 
 (defn- setup-view-size!
   [{:keys [state-atom fx-container] :as kernel}]
@@ -120,7 +119,7 @@
    repaint-chan
    view-mat4
    proj-mat4
-   view-proj-mat4
+
    ;; 业务相关
    on-event
    mouse-input
@@ -233,7 +232,6 @@
            :gl-runtime     gl-runtime
            :view-mat4 (float-array 16)
            :proj-mat4 (float-array 16)
-           :view-proj-mat4 (float-array 16)
            :repaint-chan   (chan 1)
            :on-event       on-event
            :mouse-input    mouse-input

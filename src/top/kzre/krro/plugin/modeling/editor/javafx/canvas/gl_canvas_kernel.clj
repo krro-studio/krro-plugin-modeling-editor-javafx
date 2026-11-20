@@ -1,28 +1,29 @@
 (ns top.kzre.krro.plugin.modeling.editor.javafx.canvas.gl-canvas-kernel
   (:require
-    [taoensso.timbre :as log]
-    [top.kzre.krro.core.util.channel :refer [<| >| chan close!]]
-    [top.kzre.krro.core.util.promise :as promise :refer [plet>]]
-    [top.kzre.krro.plugin.modeling.core.viewport.core :as core.viewport]
-    [top.kzre.krro.plugin.modeling.editor.javafx.canvas.protocol :as protocol]
-    [top.kzre.krro.plugin.painting.core.project.canvas :as pc]
-    [top.kzre.krro.plugin.painting.editor.javafx.graph :as javafx.graph]
-    [top.kzre.krro.plugin.painting.editor.javafx.input.pointer :as pointer]
-    [top.kzre.krro.plugin.painting.editor.javafx.input.protocol :as input])
+   [taoensso.timbre :as log]
+   [top.kzre.krro.core.util.channel :refer [<| chan close!]]
+   [top.kzre.krro.core.util.promise :as promise :refer [plet plet>]]
+   [top.kzre.krro.plugin.modeling.core.viewport.core :as core.viewport]
+   [top.kzre.krro.plugin.modeling.editor.javafx.canvas.protocol :as protocol]
+   [top.kzre.krro.plugin.painting.core.project.canvas :as pc]
+   [top.kzre.krro.plugin.painting.editor.javafx.graph :as javafx.graph]
+   [top.kzre.krro.plugin.painting.editor.javafx.input.pointer :as pointer]
+   [top.kzre.krro.plugin.painting.editor.javafx.input.protocol :as input])
   (:import
     (com.huskerdev.grapl.gl GLContext GLProfile)
     (com.huskerdev.openglfx.canvas GLCanvas GLCanvas$Builder GLCanvas$Builder$ContextDescription$New)
     (com.huskerdev.openglfx.canvas.events GLRenderEvent)
     (com.huskerdev.openglfx.lwjgl LWJGLExecutor)
     (java.util.function Consumer)
-    (javafx.application Platform)
     (javafx.scene.canvas Canvas)
     (javafx.scene.layout StackPane)
+    (top.kzre.colorutils.color RGB)
+    (top.kzre.colorutils.tool ColorNaming)
     (top.kzre.krro.canvas.gl.util ExecutorUtils)
     (top.kzre.krro.core.util SerialExecutor)
     (top.kzre.krro.plugin.modeling.core.project K3DRuntime)
     (top.kzre.krro.plugin.modeling.core.schedule Session)
-    (top.kzre.krro.plugin.painting.editor.javafx.glfx GLRuntime GLSyncTiledTextureBlitter)))
+    (top.kzre.krro.plugin.painting.editor.javafx.glfx ClearDraw FrameBlitter GLRuntime UnitDraw)))
 
 
 (defn- make-state []
@@ -58,30 +59,27 @@
 (defn- closed? [{:keys [state-atom] :as _kernel}]
   (:closed @state-atom))
 
-(defn- blit! [{:keys [gl-runtime gl-canvas sync-blitter repaint-chan] :as kernel} canvas]
+(defn- render-frame! [{:keys [gl-runtime gl-canvas sync-blitter] :as kernel} canvas]
   (when-not (closed? kernel)
     (let [^SerialExecutor gl-exec (.getExecutor ^GLRuntime gl-runtime)
-          w (.getWidth gl-canvas)
-          h (.getHeight gl-canvas)]
-      (when (and (pos? w) (pos? h))
-        (plet>
+          view-width (.getWidth gl-canvas)
+          view-height (.getHeight gl-canvas)]
+      (if (and (pos? view-width) (pos? view-height))
+        (plet
           [_
            (promise/from-completable-future
              (ExecutorUtils/runOnThread
                gl-exec
                (reify Runnable
                  (run  [_]
-                   (.send ^GLSyncTiledTextureBlitter sync-blitter
-                          canvas w h)))))]
-          (>| repaint-chan :dirty)
-          (Platform/runLater
-            (reify Runnable
-              (run [_]
-                (when (<| repaint-chan)
-                  (.repaint gl-canvas))))))))))
+                   (.send ^FrameBlitter sync-blitter
+                          canvas view-width view-height
+                          (ClearDraw/fromRgba (ColorNaming/lookupName "darkgray"))
+                          (FrameBlitter/stretched))))))])
+        (promise/rejected (ex-info "modeling canvas invalid state" {}))))))
 
 (defn- setup-session!
-  [{:keys [state-atom] :as kernel}
+  [{:keys [state-atom gl-canvas] :as kernel}
    & {:keys [scene-id renderer-id]}]
   (let [state @state-atom
         scene-id (or scene-id (:scene-id state))
@@ -101,10 +99,8 @@
                      (reify Runnable
                        (run [_]
                          (when-let [canvas (<| view-chan)]
-                           (Platform/runLater
-                             (reify Runnable
-                               (run [_]
-                                 (blit! kernel canvas))))))))))))
+                           (plet> [_ (render-frame! kernel canvas)]
+                                  (.repaint gl-canvas))))))))))
 
 
 (defrecord GLCanvasKernalImpl
@@ -112,11 +108,10 @@
    ^GLCanvas gl-canvas
    ^Canvas overlay-canvas
    ^StackPane fx-container
-   ^GLSyncTiledTextureBlitter sync-blitter
+   ^FrameBlitter sync-blitter
 
    ;; 合成相关
    ^GLRuntime gl-runtime
-   repaint-chan
    view-mat4
    proj-mat4
 
@@ -157,11 +152,10 @@
                         (when mouse-input #(input/stop! mouse-input))
 
                         ;; 消费者按消费流逆序关闭 repaint->blitter
-                        #(close! repaint-chan)
                         (when sync-blitter
                           #(try
                              ;;
-                             (.close ^GLSyncTiledTextureBlitter sync-blitter)
+                             (.close ^FrameBlitter sync-blitter)
                              (catch Throwable t
                                (log/warn t "sync-blitter close failed"))))
                         (when session #(.close ^Session session))
@@ -218,7 +212,7 @@
   (let [{:keys [container gl-canvas overlay-canvas]}
         (build-layout gl-runtime)
 
-        sync-blitter   (GLSyncTiledTextureBlitter/create pc/global-tile-size)
+        sync-blitter   (FrameBlitter/create pc/global-tile-size)
         mouse-input    (pointer/make-pointer-input
                          container
                          on-event)
@@ -232,7 +226,6 @@
            :gl-runtime     gl-runtime
            :view-mat4 (float-array 16)
            :proj-mat4 (float-array 16)
-           :repaint-chan   (chan 1)
            :on-event       on-event
            :mouse-input    mouse-input
            :state-atom     (make-state)})]
@@ -242,7 +235,7 @@
       gl-canvas
       (reify Consumer
         (accept [_ event]
-          (.poll ^GLSyncTiledTextureBlitter sync-blitter ^GLRenderEvent event))))
+          (.poll ^FrameBlitter sync-blitter ^GLRenderEvent event))))
 
     ;; ── onReshapeEvent：surface 尺寸变化，触发一次重渲染 ──
     (.addOnReshapeEvent
